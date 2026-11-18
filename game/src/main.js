@@ -48,12 +48,57 @@ export class Game {
     window.addEventListener('resize', this.onResize);
     this.onResize();
 
+    this.gameState = this.shotParam ? 'playing' : 'title';
+
     // Check if running in screenshot staging mode
     if (this.shotParam) {
       stageShot(this.shotParam, this);
+    } else {
+      this.hud.showTitle();
     }
 
+    // Wire menu events and keyboard shortcuts
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && this.gameState === 'title') {
+        this.startGame();
+      }
+      if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+        if (this.gameState === 'playing') {
+          this.pauseGame();
+        } else if (this.gameState === 'paused') {
+          this.resumeGame();
+        }
+      }
+    });
+
+    setTimeout(() => {
+      document.getElementById('hud-start-btn')?.addEventListener('click', () => this.startGame());
+      document.getElementById('hud-resume-btn')?.addEventListener('click', () => this.resumeGame());
+      document.getElementById('hud-restart-btn')?.addEventListener('click', () => window.location.reload());
+      document.getElementById('hud-mute-btn')?.addEventListener('click', () => this.audio.toggleMute());
+      document.getElementById('hud-splash-continue')?.addEventListener('click', () => this.hud.hideMissionComplete());
+      document.getElementById('hud-gameover-restart')?.addEventListener('click', () => window.location.reload());
+    }, 100);
+
     requestAnimationFrame(this.animate);
+  }
+
+  startGame() {
+    this.gameState = 'playing';
+    this.hud.hideTitle();
+    if (this.audio && this.audio.ctx && this.audio.ctx.state === 'suspended') {
+      this.audio.ctx.resume();
+    }
+  }
+
+  pauseGame() {
+    this.gameState = 'paused';
+    this.hud.showPause();
+  }
+
+  resumeGame() {
+    this.gameState = 'playing';
+    this.hud.hidePause();
   }
 
   initRenderer() {
@@ -160,6 +205,26 @@ export class Game {
     const dt = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
 
+    if (this.gameState === 'title') {
+      // Gentle cinematic camera rotation on title screen
+      this.player.camYaw += dt * 0.2;
+      this.player.updateCamera(dt);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
+    if (this.gameState === 'paused' || this.gameState === 'gameOver') {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
+    // Check Player Health for Game Over
+    if (this.player.health <= 0) {
+      this.gameState = 'gameOver';
+      this.hud.showGameOver(false);
+      return;
+    }
+
     // Handle Mute Toggle
     if (this.input.justPressed('mute')) {
       this.audio.toggleMute();
@@ -184,7 +249,7 @@ export class Game {
     // 1. Update Traffic, Pedestrians, Police, Missions, Combat
     this.trafficManager.step(dt, this.player, this.city.colliders, this.boundaries);
     this.pedestrianManager.step(dt, this.player, this.trafficManager.vehicles);
-    this.policeManager.step(dt, this.player);
+    this.policeManager.step(dt, this.player, this.city.colliders, this.boundaries, this);
     this.missionManager.step(dt, this.player, this.policeManager);
     this.combatSystem.step(dt, this.player, this.pedestrianManager, this.policeManager);
 

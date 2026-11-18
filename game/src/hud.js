@@ -8,6 +8,148 @@ export class Hud {
     this.districtDisplayTimer = 0;
 
     this.createElements();
+    this.createMenus();
+  }
+
+  createMenus() {
+    // 1. Title Screen Overlay
+    this.titleOverlay = document.createElement('div');
+    this.titleOverlay.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, #1e2530 0%, #0a0d12 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      z-index: 100;
+      padding: 20px;
+    `;
+    this.titleOverlay.innerHTML = `
+      <div style="font-size: 64px; font-weight: 900; letter-spacing: 6px; color: #ffbe53; text-shadow: 0 4px 24px rgba(255,190,83,0.4); margin-bottom: 8px;">SOLMARA</div>
+      <div style="font-size: 18px; font-weight: 600; color: #94a3b8; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 32px;">Sun, Streets & Second Chances</div>
+      
+      <div style="background: rgba(18,22,28,0.85); border: 1px solid rgba(255,190,83,0.3); border-radius: 12px; padding: 22px 32px; max-width: 520px; width: 100%; margin-bottom: 28px; box-shadow: 0 8px 32px rgba(0,0,0,0.6);">
+        <div style="font-size: 13px; font-weight: 700; color: #ffbe53; letter-spacing: 1.5px; margin-bottom: 10px; text-transform: uppercase;">Controls</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; font-size: 12px; color: #e2e8f0;">
+          <div><b>WASD / Arrows</b>: Move / Drive</div>
+          <div><b>Shift</b>: Sprint / Nitro</div>
+          <div><b>Space</b>: Jump / Handbrake</div>
+          <div><b>E</b>: Enter / Exit Car</div>
+          <div><b>F</b>: Melee Punch</div>
+          <div><b>M</b>: Toggle Mute</div>
+          <div><b>P / Esc</b>: Pause Menu</div>
+          <div><b>Mouse</b>: Orbit Camera</div>
+        </div>
+      </div>
+
+      <button id="hud-start-btn" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: #111827; border: none; border-radius: 8px; padding: 16px 48px; font-size: 18px; font-weight: 800; cursor: pointer; letter-spacing: 1.5px; box-shadow: 0 4px 20px rgba(245,158,11,0.4);">START GAME</button>
+      <div style="font-size: 12px; color: #64748b; margin-top: 14px;">Press ENTER or click START GAME</div>
+    `;
+    this.container.appendChild(this.titleOverlay);
+
+    // 2. Pause Menu Overlay
+    this.pauseOverlay = document.createElement('div');
+    this.pauseOverlay.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 13, 18, 0.85);
+      backdrop-filter: blur(6px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      z-index: 90;
+    `;
+    this.pauseOverlay.innerHTML = `
+      <div style="font-size: 42px; font-weight: 900; letter-spacing: 4px; color: #ffbe53; margin-bottom: 24px;">PAUSED</div>
+      <div style="display: flex; flex-direction: column; gap: 12px; width: 260px;">
+        <button id="hud-resume-btn" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer;">Resume</button>
+        <button id="hud-restart-btn" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer;">Restart Game</button>
+        <button id="hud-mute-btn" style="background: #1e293b; color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 8px; padding: 12px; font-size: 15px; font-weight: 700; cursor: pointer;">Toggle Mute</button>
+      </div>
+    `;
+    this.container.appendChild(this.pauseOverlay);
+
+    // 3. Mission Complete Splash Overlay
+    this.missionSplash = document.createElement('div');
+    this.missionSplash.style.cssText = `
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(18, 22, 28, 0.95);
+      border: 2px solid #4ade80;
+      border-radius: 12px;
+      padding: 20px 36px;
+      text-align: center;
+      display: none;
+      pointer-events: auto;
+      z-index: 80;
+      box-shadow: 0 8px 32px rgba(74,222,128,0.3);
+    `;
+    this.missionSplash.innerHTML = `
+      <div style="font-size: 12px; font-weight: 800; color: #4ade80; letter-spacing: 2px; margin-bottom: 4px;">MISSION COMPLETED</div>
+      <div id="hud-splash-title" style="font-size: 22px; font-weight: 900; color: #fff; margin-bottom: 8px;">M1: First Wheels</div>
+      <div id="hud-splash-reward" style="font-size: 16px; font-weight: 700; color: #ffbe53; margin-bottom: 16px;">Reward: +$500</div>
+      <button id="hud-splash-continue" style="background: #4ade80; color: #111827; border: none; border-radius: 6px; padding: 10px 24px; font-size: 14px; font-weight: 800; cursor: pointer;">CONTINUE</button>
+    `;
+    this.container.appendChild(this.missionSplash);
+
+    // 4. Game Over / Busted Overlay
+    this.gameOverOverlay = document.createElement('div');
+    this.gameOverOverlay.style.cssText = `
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 5, 5, 0.9);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+      z-index: 95;
+    `;
+    this.gameOverOverlay.innerHTML = `
+      <div id="hud-gameover-title" style="font-size: 56px; font-weight: 900; letter-spacing: 4px; color: #ef4444; margin-bottom: 12px; text-shadow: 0 0 20px rgba(239,68,68,0.5);">BUSTED</div>
+      <div id="hud-gameover-subtitle" style="font-size: 16px; font-weight: 600; color: #94a3b8; margin-bottom: 32px; letter-spacing: 1px;">You were caught by the police or eliminated.</div>
+      <button id="hud-gameover-restart" style="background: #ef4444; color: #fff; border: none; border-radius: 8px; padding: 14px 36px; font-size: 16px; font-weight: 800; cursor: pointer; letter-spacing: 1px;">RESTART GAME</button>
+    `;
+    this.container.appendChild(this.gameOverOverlay);
+  }
+
+  showTitle() {
+    if (this.titleOverlay) this.titleOverlay.style.display = 'flex';
+  }
+  hideTitle() {
+    if (this.titleOverlay) this.titleOverlay.style.display = 'none';
+  }
+  showPause() {
+    if (this.pauseOverlay) this.pauseOverlay.style.display = 'flex';
+  }
+  hidePause() {
+    if (this.pauseOverlay) this.pauseOverlay.style.display = 'none';
+  }
+  showMissionComplete(title, reward) {
+    if (this.missionSplash) {
+      document.getElementById('hud-splash-title').textContent = title;
+      document.getElementById('hud-splash-reward').textContent = `Reward: +$${reward}`;
+      this.missionSplash.style.display = 'block';
+    }
+  }
+  hideMissionComplete() {
+    if (this.missionSplash) this.missionSplash.style.display = 'none';
+  }
+  showGameOver(isBusted) {
+    if (this.gameOverOverlay) {
+      document.getElementById('hud-gameover-title').textContent = isBusted ? 'BUSTED' : 'WASTED';
+      document.getElementById('hud-gameover-subtitle').textContent = isBusted ? 'Apprehended by Solmara Police Department.' : 'Critical injuries sustained in Solmara.';
+      this.gameOverOverlay.style.display = 'flex';
+    }
+  }
+  hideGameOver() {
+    if (this.gameOverOverlay) this.gameOverOverlay.style.display = 'none';
   }
 
   createElements() {
