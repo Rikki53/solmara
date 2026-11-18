@@ -7,7 +7,13 @@ import { Vehicle } from './vehicles.js';
 import { TrafficManager } from './traffic.js';
 import { PedestrianManager } from './pedestrians.js';
 import { Hud } from './hud.js';
+import { AudioManager } from './audio.js';
+import { PoliceManager } from './police.js';
+import { MissionManager } from './missions.js';
+import { CombatSystem } from './combat.js';
+import { SaveSystem } from './save.js';
 import { stageShot } from './shots.js';
+import { dist2D } from './utils.js';
 
 export class Game {
   constructor() {
@@ -19,8 +25,21 @@ export class Game {
     this.initRenderer();
     this.initScene();
     this.initLighting();
+    this.initAudioAndSystems();
     this.initWorld();
     this.initHud();
+
+    // If loaded from save
+    const loadedData = this.saveSystem.loadGame();
+    if (loadedData) {
+      this.missionManager.money = loadedData.money;
+      this.missionManager.startMission(loadedData.currentMissionIndex || 0);
+      this.player.x = loadedData.playerX;
+      this.player.z = loadedData.playerZ;
+      this.player.updateTransform();
+    } else {
+      this.missionManager.startMission(0);
+    }
 
     this.lastTime = performance.now();
     this.onResize = this.onResize.bind(this);
@@ -87,12 +106,22 @@ export class Game {
     this.scene.add(ambientLight);
   }
 
+  initAudioAndSystems() {
+    this.audio = new AudioManager();
+    this.saveSystem = new SaveSystem();
+  }
+
   initWorld() {
     this.input = new InputManager(this.canvas);
     this.city = new City(this.scene, this.seed);
 
     // Spawn player on Coral Avenue sidewalk
     this.player = new Player(this.scene, this.camera, 148, 15);
+
+    // Systems
+    this.policeManager = new PoliceManager(this.scene, this.city, this.audio);
+    this.missionManager = new MissionManager(this.scene, this.city, this.audio);
+    this.combatSystem = new CombatSystem(this.scene, this.audio);
 
     // Spawn ambient traffic
     this.trafficManager = new TrafficManager(this.scene, this.city, this.seed + 10);
@@ -131,9 +160,44 @@ export class Game {
     const dt = Math.min((now - this.lastTime) / 1000, 0.1);
     this.lastTime = now;
 
-    // 1. Update Traffic & Pedestrians
+    // Handle Mute Toggle
+    if (this.input.justPressed('mute')) {
+      this.audio.toggleMute();
+    }
+
+    // Handle Punch Action (F key)
+    if (this.input.justPressed('action')) {
+      this.combatSystem.triggerPunch(this.player, this.pedestrianManager, this.policeManager);
+    }
+
+    // Handle Quick Save (P key)
+    if (this.input.justPressed('pause')) {
+      this.saveSystem.saveGame({
+        money: this.missionManager.money,
+        currentMissionIndex: this.missionManager.currentMissionIndex,
+        playerX: this.player.x,
+        playerZ: this.player.z,
+        muted: this.audio.isMuted,
+      });
+    }
+
+    // 1. Update Traffic, Pedestrians, Police, Missions, Combat
     this.trafficManager.step(dt, this.player, this.city.colliders, this.boundaries);
     this.pedestrianManager.step(dt, this.player, this.trafficManager.vehicles);
+    this.policeManager.step(dt, this.player);
+    this.missionManager.step(dt, this.player, this.policeManager);
+    this.combatSystem.step(dt, this.player, this.pedestrianManager, this.policeManager);
+
+    // Check Pay & Spray Garage (x: 35, z: 56)
+    if (this.player.mode === 'driving' && this.player.vehicle) {
+      const dGarage = dist2D(this.player.x, this.player.z, 35, 56);
+      if (dGarage < 7.0 && this.policeManager.wantedLevel > 0 && this.missionManager.money >= 100) {
+        this.missionManager.money -= 100;
+        this.policeManager.setWantedLevel(0);
+        this.player.vehicle.health = 100;
+        if (this.audio) this.audio.playCrash(0.5);
+      }
+    }
 
     // 2. Update Player
     this.player.step(dt, this.input, this.city.colliders, this.boundaries, this.trafficManager.vehicles);
@@ -148,7 +212,10 @@ export class Game {
       this.player,
       this.trafficManager,
       this.pedestrianManager.pedestrians,
-      this.trafficManager.vehicles
+      this.trafficManager.vehicles,
+      this.policeManager,
+      this.missionManager,
+      this.combatSystem
     );
 
     // 5. Render Scene

@@ -1,4 +1,4 @@
-// Solmara Heads-Up Display (HUD): minimap radar, speedometer, district banner, health bar, and control prompts.
+// Solmara Heads-Up Display (HUD): minimap radar, speedometer, district banner, health bar, wanted stars, money, and objective panel.
 
 export class Hud {
   constructor(container, city) {
@@ -60,28 +60,64 @@ export class Hud {
     this.topBar.appendChild(this.districtSubtitle);
     this.root.appendChild(this.topBar);
 
-    // In-game Clock (Top Right)
-    this.clockBox = document.createElement('div');
-    this.clockBox.style.cssText = `
+    // Top Right: Clock, Wanted Stars & Money Box
+    this.topRight = document.createElement('div');
+    this.topRight.style.cssText = `
       position: absolute;
       top: 24px;
       right: 32px;
-      background: rgba(18, 22, 28, 0.75);
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    `;
+
+    this.statsBox = document.createElement('div');
+    this.statsBox.style.cssText = `
+      background: rgba(18, 22, 28, 0.85);
       backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 190, 83, 0.4);
       border-radius: 8px;
-      padding: 8px 18px;
+      padding: 10px 20px;
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 18px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.5);
     `;
-    this.clockBox.innerHTML = `
-      <span style="color: #ffbe53; font-size: 16px;">☀</span>
-      <span id="hud-clock" style="font-size: 20px; font-weight: 700; letter-spacing: 1px;">17:48</span>
-      <span style="font-size: 12px; font-weight: 600; color: #ffaa44; background: rgba(255,170,68,0.2); padding: 2px 6px; border-radius: 4px;">GOLDEN HOUR</span>
+    this.statsBox.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: flex-end;">
+        <span style="font-size: 10px; font-weight: 800; color: #9aa4b2; letter-spacing: 1px;">CASH</span>
+        <span id="hud-money" style="font-size: 22px; font-weight: 900; color: #4ade80;">$250</span>
+      </div>
+      <div style="width: 1px; height: 28px; background: rgba(255,255,255,0.15);"></div>
+      <div style="display: flex; flex-direction: column; align-items: flex-end;">
+        <span style="font-size: 10px; font-weight: 800; color: #9aa4b2; letter-spacing: 1px;">WANTED</span>
+        <div id="hud-wanted-stars" style="display: flex; gap: 3px; font-size: 16px; color: #64748b;">☆☆☆☆☆</div>
+      </div>
     `;
-    this.root.appendChild(this.clockBox);
+    this.topRight.appendChild(this.statsBox);
+    this.root.appendChild(this.topRight);
+
+    // Mission Objective Panel (Top Center)
+    this.objectiveBox = document.createElement('div');
+    this.objectiveBox.style.cssText = `
+      position: absolute;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(18, 22, 28, 0.9);
+      border: 1px solid rgba(255, 190, 83, 0.6);
+      border-radius: 8px;
+      padding: 10px 24px;
+      max-width: 450px;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    `;
+    this.objectiveBox.innerHTML = `
+      <div style="font-size: 10px; font-weight: 800; color: #ffbe53; letter-spacing: 1.5px; text-transform: uppercase;">CURRENT OBJECTIVE</div>
+      <div id="hud-objective-text" style="font-size: 13px; font-weight: 600; color: #ffffff; margin-top: 2px;">Explore Solmara or start First Wheels mission.</div>
+    `;
+    this.root.appendChild(this.objectiveBox);
 
     // 2. Bottom-Left Container: Health bar + Minimap Radar
     this.bottomLeft = document.createElement('div');
@@ -202,13 +238,13 @@ export class Hud {
       text-shadow: 0 1px 4px rgba(0,0,0,0.8);
       white-space: nowrap;
     `;
-    this.controlsBar.textContent = 'WASD: Move / Drive  |  Shift: Sprint  |  Space: Jump / Handbrake  |  E: Enter / Exit Car  |  Mouse: Orbit Camera';
+    this.controlsBar.textContent = 'WASD: Move/Drive | Shift: Sprint | Space: Jump | E: Car | F: Punch | M: Mute | P: Save';
     this.root.appendChild(this.controlsBar);
 
     this.container.appendChild(this.root);
   }
 
-  update(player, trafficManager, pedestrians, nearbyVehicles) {
+  update(player, trafficManager, pedestrians, nearbyVehicles, policeManager, missionManager, combatSystem) {
     // 1. Update District Name
     const district = this.city.getDistrictAt(player.x, player.z);
     if (!this.currentDistrict || this.currentDistrict.id !== district.id) {
@@ -218,7 +254,30 @@ export class Hud {
       this.districtSubtitle.textContent = district.subtitle;
     }
 
-    // 2. Update Speedometer
+    // 2. Update Stats (Money & Wanted Stars & HP)
+    if (missionManager) {
+      document.getElementById('hud-money').textContent = `$${missionManager.money}`;
+      document.getElementById('hud-objective-text').textContent = missionManager.objectiveText;
+    }
+
+    if (policeManager) {
+      const w = policeManager.wantedLevel;
+      let starsStr = '';
+      for (let i = 0; i < 5; i++) {
+        starsStr += i < w ? '★' : '☆';
+      }
+      const starEl = document.getElementById('hud-wanted-stars');
+      starEl.textContent = starsStr;
+      starEl.style.color = w > 0 ? '#f59e0b' : '#64748b';
+    }
+
+    if (combatSystem) {
+      const hp = Math.round(combatSystem.health);
+      document.getElementById('hud-hp-val').textContent = hp;
+      document.getElementById('hud-hp-bar').style.width = `${hp}%`;
+    }
+
+    // 3. Update Speedometer
     if (player.mode === 'driving' && player.vehicle) {
       this.speedoContainer.style.display = 'flex';
       const speedMph = Math.round(Math.abs(player.vehicle.speed) * 2.237);
@@ -230,7 +289,7 @@ export class Hud {
       this.speedoContainer.style.display = 'none';
     }
 
-    // 3. Update Action Prompt
+    // 4. Update Action Prompt
     if (player.mode === 'foot') {
       const enterable = player.findNearestEnterableVehicle(nearbyVehicles);
       if (enterable) {
@@ -243,11 +302,11 @@ export class Hud {
       this.promptBox.style.display = 'none';
     }
 
-    // 4. Render Minimap Radar
-    this.renderMinimap(player, trafficManager, pedestrians);
+    // 5. Render Minimap Radar
+    this.renderMinimap(player, trafficManager, pedestrians, policeManager, missionManager);
   }
 
-  renderMinimap(player, trafficManager, pedestrians) {
+  renderMinimap(player, trafficManager, pedestrians, policeManager, missionManager) {
     const ctx = this.minimapCtx;
     const size = this.minimapSize * 2;
     const center = size / 2;
@@ -310,40 +369,56 @@ export class Hud {
       ctx.fillRect(sx, sz, sw, sh);
     }
 
-    // Pedestrians as subtle dots
-    if (pedestrians) {
-      ctx.fillStyle = '#94a3b8';
-      for (let i = 0; i < pedestrians.length; i++) {
-        const p = pedestrians[i];
-        const px = (p.x - player.x) * mapScale;
-        const pz = (p.z - player.z) * mapScale;
+    // Pay & Spray Garage Icon (wrench / blue dot at {x:35, z:56})
+    const garageX = (35 - player.x) * mapScale;
+    const garageZ = (56 - player.z) * mapScale;
+    ctx.fillStyle = '#38bdf8';
+    ctx.beginPath();
+    ctx.arc(garageX, garageZ, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mission Waypoint Marker
+    if (missionManager && missionManager.waypointPos) {
+      const wx = (missionManager.waypointPos.x - player.x) * mapScale;
+      const wz = (missionManager.waypointPos.z - player.z) * mapScale;
+      ctx.fillStyle = '#ffbe53';
+      ctx.beginPath();
+      ctx.arc(wx, wz, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Police Cars blips (red)
+    if (policeManager && policeManager.policeCars) {
+      ctx.fillStyle = '#ef4444';
+      for (const pcar of policeManager.policeCars) {
+        const pcx = (pcar.x - player.x) * mapScale;
+        const pcz = (pcar.z - player.z) * mapScale;
         ctx.beginPath();
-        ctx.arc(px, pz, 2.5, 0, Math.PI * 2);
+        ctx.arc(pcx, pcz, 4, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    // Traffic Cars as orange/white rectangular blips
+    // Traffic Cars as grey rectangular blips
     if (trafficManager && trafficManager.vehicles) {
       for (let i = 0; i < trafficManager.vehicles.length; i++) {
         const car = trafficManager.vehicles[i];
-        if (car.isOccupied) continue;
+        if (car.isOccupied || car.isPolice) continue;
         const cx = (car.x - player.x) * mapScale;
         const cz = (car.z - player.z) * mapScale;
 
         ctx.save();
         ctx.translate(cx, cz);
         ctx.rotate(-car.heading);
-        ctx.fillStyle = car.config.type === 'taxi' ? '#f59e0b' : '#cbd5e1';
-        ctx.fillRect(-3, -5, 6, 10);
+        ctx.fillStyle = car.config.type === 'taxi' ? '#f59e0b' : '#94a3b8';
+        ctx.fillRect(-2, -4, 4, 8);
         ctx.restore();
       }
     }
 
-    // Player indicator at center: bright green / white triangle
+    // Player indicator at center: bright green triangle
     ctx.save();
     const facingAngle = player.mode === 'driving' && player.vehicle ? player.vehicle.heading : player.heading;
-    // Map coordinate system: +X is right, +Z is down
     ctx.rotate(-facingAngle);
 
     ctx.fillStyle = '#4ade80';
