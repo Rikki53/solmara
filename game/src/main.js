@@ -1,134 +1,165 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between four screens: title, play, paused and game over.
-//
-// ?seed=N fixes the falling pattern. ?shot=start|play|end (with &seed=N) stages that scene
-// instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, LIVES, STEP } from './config.js';
-import { createRandom } from './random.js';
-import { createWorld, EVENT_HIT, EVENT_OVER } from './world.js';
-import { ACTION_CONFIRM, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Solmara game entrypoint: sets up Three.js WebGL scene, lighting, game loop, and core systems.
+import * as THREE from 'three';
+import { InputManager } from './input.js';
+import { City } from './city.js';
+import { Player } from './player.js';
+import { Vehicle } from './vehicles.js';
+import { TrafficManager } from './traffic.js';
+import { PedestrianManager } from './pedestrians.js';
+import { Hud } from './hud.js';
 import { stageShot } from './shots.js';
 
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
-const MAX_FRAME = 0.25;
+export class Game {
+  constructor() {
+    this.canvas = document.getElementById('game');
+    this.urlParams = new URLSearchParams(window.location.search);
+    this.seed = parseInt(this.urlParams.get('seed') || '1', 10);
+    this.shotParam = this.urlParams.get('shot');
 
-const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+    this.initRenderer();
+    this.initScene();
+    this.initLighting();
+    this.initWorld();
+    this.initHud();
 
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
+    this.lastTime = performance.now();
+    this.onResize = this.onResize.bind(this);
+    this.animate = this.animate.bind(this);
 
-function readBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
+    window.addEventListener('resize', this.onResize);
+    this.onResize();
+
+    // Check if running in screenshot staging mode
+    if (this.shotParam) {
+      stageShot(this.shotParam, this);
+    }
+
+    requestAnimationFrame(this.animate);
+  }
+
+  initRenderer() {
+    this.renderer = new THREE.WebGLRenderer({
+      canvas: this.canvas,
+      antialias: true,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 800);
+  }
+
+  initScene() {
+    this.scene = new THREE.Scene();
+
+    // Warm golden hour sunset haze
+    const sunsetColor = 0xf8a870;
+    this.scene.background = new THREE.Color(sunsetColor);
+    this.scene.fog = new THREE.Fog(sunsetColor, 90, 380);
+  }
+
+  initLighting() {
+    // 1. Warm Golden Hour Directional Sunlight
+    this.sunLight = new THREE.DirectionalLight(0xffdfa8, 1.8);
+    this.sunLight.position.set(-160, 95, -120);
+    this.sunLight.castShadow = true;
+    this.sunLight.shadow.mapSize.width = 2048;
+    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.camera.near = 10;
+    this.sunLight.shadow.camera.far = 400;
+    const d = 90;
+    this.sunLight.shadow.camera.left = -d;
+    this.sunLight.shadow.camera.right = d;
+    this.sunLight.shadow.camera.top = d;
+    this.sunLight.shadow.camera.bottom = -d;
+    this.scene.add(this.sunLight);
+
+    // 2. Ambient Hemisphere Light: Sky Blue + Ground Bounce Warmth
+    this.hemiLight = new THREE.HemisphereLight(0x8cd2ff, 0xdf9f68, 0.85);
+    this.scene.add(this.hemiLight);
+
+    // 3. Subtle ambient light for low-poly fill
+    const ambientLight = new THREE.AmbientLight(0xffeedd, 0.35);
+    this.scene.add(ambientLight);
+  }
+
+  initWorld() {
+    this.input = new InputManager(this.canvas);
+    this.city = new City(this.scene, this.seed);
+
+    // Spawn player on Coral Avenue sidewalk
+    this.player = new Player(this.scene, this.camera, 148, 15);
+
+    // Spawn ambient traffic
+    this.trafficManager = new TrafficManager(this.scene, this.city, this.seed + 10);
+
+    // Park a luxury sports car right next to player spawn on Coral Avenue for immediate driving
+    this.starterCar = new Vehicle(this.scene, 'sport', 143.5, 20, Math.PI, 0xd32f2f);
+    this.trafficManager.vehicles.push(this.starterCar);
+
+    // Spawn ambient pedestrians
+    this.pedestrianManager = new PedestrianManager(this.scene, this.city, this.seed + 20);
+
+    this.boundaries = {
+      minX: this.city.minX,
+      maxX: this.city.maxX,
+      minZ: this.city.minZ,
+      maxZ: this.city.maxZ,
+    };
+  }
+
+  initHud() {
+    const hudContainer = document.getElementById('hud-overlay') || document.body;
+    this.hud = new Hud(hudContainer, this.city);
+  }
+
+  onResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+  }
+
+  animate(now) {
+    requestAnimationFrame(this.animate);
+
+    const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+    this.lastTime = now;
+
+    // 1. Update Traffic & Pedestrians
+    this.trafficManager.step(dt, this.player, this.city.colliders, this.boundaries);
+    this.pedestrianManager.step(dt, this.player, this.trafficManager.vehicles);
+
+    // 2. Update Player
+    this.player.step(dt, this.input, this.city.colliders, this.boundaries, this.trafficManager.vehicles);
+
+    // 3. Keep directional shadow camera focused near player
+    this.sunLight.position.set(this.player.x - 120, 95, this.player.z - 90);
+    this.sunLight.target.position.set(this.player.x, 0, this.player.z);
+    this.sunLight.target.updateMatrixWorld();
+
+    // 4. Update HUD
+    this.hud.update(
+      this.player,
+      this.trafficManager,
+      this.pedestrianManager.pedestrians,
+      this.trafficManager.vehicles
+    );
+
+    // 5. Render Scene
+    this.renderer.render(this.scene, this.camera);
+
+    // 6. Reset per-frame input flags
+    this.input.clearPressed();
   }
 }
 
-function saveBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Storage can be off (private windows): the best score then lasts this visit only.
-  }
-}
-
-function runShot(name) {
-  const scene = stageShot(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.screen, scene.best);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
-}
-
-function runGame() {
-  const input = createInput(canvas);
-  let screen = SCREEN_TITLE;
-  let best = readBest();
-  let accumulator = 0;
-  let last = performance.now();
-
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each hit.
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame() {
-    world.reset();
-    accumulator = 0;
-    screen = SCREEN_PLAY;
-    announce(`Playing. ${LIVES} lives.`);
-  }
-
-  function endGame() {
-    screen = SCREEN_OVER;
-    if (world.state.score > best) {
-      best = world.state.score;
-      saveBest(best);
-    }
-    announce(`Game over. Score ${world.state.score}. Best ${best}.`);
-  }
-
-  function handleActions() {
-    const actions = input.takeActions();
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER)) startGame();
-    else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACTION_PAUSE | ACTION_CONFIRM) && screen === SCREEN_PAUSED) {
-      screen = SCREEN_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function step() {
-    if (screen === SCREEN_TITLE) {
-      world.step(STEP, 0, true);
-      return;
-    }
-    const events = world.step(STEP, input.direction(), false);
-    if (events & EVENT_OVER) endGame();
-    else if (events & EVENT_HIT) announce(world.state.lives === 1 ? 'Hit. 1 life left.' : `Hit. ${world.state.lives} lives left.`);
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    accumulator += Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    handleActions();
-    if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
-      while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
-        step();
-        accumulator -= STEP;
-      }
-    } else {
-      accumulator = 0;
-    }
-    renderer.draw(world.state, screen, best);
-  }
-
-  // Leaving the tab pauses a running game rather than letting blocks fall unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === SCREEN_PLAY) {
-      screen = SCREEN_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Block Dodger. Press Space or click to start.');
-  requestAnimationFrame(frame);
-}
-
-if (shot) runShot(shot);
-else runGame();
+// Bootstrap game when DOM is loaded
+window.addEventListener('DOMContentLoaded', () => {
+  window.solmaraGame = new Game();
+});

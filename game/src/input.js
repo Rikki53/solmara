@@ -1,53 +1,151 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Solmara input controller: handles keyboard, mouse orbit deltas, and pointer locking.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
+export class InputManager {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.keys = new Map();
+    this.pressed = new Set();
+    this.mouseDx = 0;
+    this.mouseDy = 0;
+    this.isPointerLocked = false;
+    this.isMouseDown = false;
+    this.prevMouseX = 0;
+    this.prevMouseY = 0;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+    this.onKeyDown = this.onKeyDown.bind(this);
+    this.onKeyUp = this.onKeyUp.bind(this);
+    this.onMouseMove = this.onMouseMove.bind(this);
+    this.onMouseDown = this.onMouseDown.bind(this);
+    this.onMouseUp = this.onMouseUp.bind(this);
+    this.onPointerLockChange = this.onPointerLockChange.bind(this);
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
+    this.setupListeners();
+  }
 
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
+  setupListeners() {
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
+    window.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('mousedown', this.onMouseDown);
+    window.addEventListener('mouseup', this.onMouseUp);
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
 
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
-    },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
-    },
-  };
+    this.canvas.addEventListener('click', () => {
+      if (!this.isPointerLocked && this.canvas.requestPointerLock) {
+        this.canvas.requestPointerLock();
+      }
+    });
+  }
+
+  dispose() {
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('mousedown', this.onMouseDown);
+    window.removeEventListener('mouseup', this.onMouseUp);
+    document.removeEventListener('pointerlockchange', this.onPointerLockChange);
+  }
+
+  onPointerLockChange() {
+    this.isPointerLocked = document.pointerLockElement === this.canvas;
+  }
+
+  mapKeyCode(code) {
+    switch (code) {
+      case 'KeyW':
+      case 'ArrowUp':
+        return 'forward';
+      case 'KeyS':
+      case 'ArrowDown':
+        return 'backward';
+      case 'KeyA':
+      case 'ArrowLeft':
+        return 'left';
+      case 'KeyD':
+      case 'ArrowRight':
+        return 'right';
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        return 'sprint';
+      case 'Space':
+        return 'space';
+      case 'KeyE':
+        return 'enterExit';
+      case 'KeyF':
+        return 'action';
+      case 'KeyH':
+        return 'horn';
+      case 'KeyC':
+        return 'camera';
+      case 'KeyM':
+        return 'mute';
+      case 'KeyP':
+      case 'Escape':
+        return 'pause';
+      default:
+        return code.toLowerCase();
+    }
+  }
+
+  onKeyDown(e) {
+    const action = this.mapKeyCode(e.code);
+    if (!this.keys.get(action)) {
+      this.pressed.add(action);
+    }
+    this.keys.set(action, true);
+
+    // Prevent default browser scrolling on space / arrow keys
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      e.preventDefault();
+    }
+  }
+
+  onKeyUp(e) {
+    const action = this.mapKeyCode(e.code);
+    this.keys.set(action, false);
+  }
+
+  onMouseDown(e) {
+    this.isMouseDown = true;
+    this.prevMouseX = e.clientX;
+    this.prevMouseY = e.clientY;
+  }
+
+  onMouseUp() {
+    this.isMouseDown = false;
+  }
+
+  onMouseMove(e) {
+    if (this.isPointerLocked) {
+      this.mouseDx += e.movementX || 0;
+      this.mouseDy += e.movementY || 0;
+    } else if (this.isMouseDown) {
+      // Allow drag orbit even if pointer lock isn't active
+      const dx = e.clientX - this.prevMouseX;
+      const dy = e.clientY - this.prevMouseY;
+      this.mouseDx += dx;
+      this.mouseDy += dy;
+      this.prevMouseX = e.clientX;
+      this.prevMouseY = e.clientY;
+    }
+  }
+
+  isDown(action) {
+    return !!this.keys.get(action);
+  }
+
+  justPressed(action) {
+    return this.pressed.has(action);
+  }
+
+  consumeMouseDeltas() {
+    const deltas = { dx: this.mouseDx, dy: this.mouseDy };
+    this.mouseDx = 0;
+    this.mouseDy = 0;
+    return deltas;
+  }
+
+  clearPressed() {
+    this.pressed.clear();
+  }
 }

@@ -1,79 +1,84 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// Solmara screenshot staging module for deterministic scene framing via ?shot=street|drive|chase.
+import { Vehicle } from './vehicles.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+export function stageShot(name, game) {
+  const { player, city, trafficManager, pedestrianManager, camera } = game;
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
+  if (name === 'drive' || name === 'chase') {
+    // 1. Stage Driving Shot on Coral Avenue at Golden Hour
+    // Spawn player inside a red sports car heading North along Coral Avenue (X = 143.5, Z = 20)
+    let car = null;
+    for (const v of trafficManager.vehicles) {
+      if (v.config.type === 'sport') {
+        car = v;
+        break;
+      }
+    }
+    if (!car) {
+      car = new Vehicle(game.scene, 'sport', 143.5, 30, Math.PI, 0xd32f2f);
+      trafficManager.vehicles.push(car);
+    }
+
+    car.x = 143.5;
+    car.z = 25;
+    car.heading = Math.PI; // Heading North (-Z)
+    car.speed = name === 'chase' ? 36.0 : 29.0; // ~65-80 MPH
+    car.updateTransform();
+
+    player.enterVehicle(car);
+    player.camYaw = Math.PI * 0.95;
+    player.camPitch = 0.22;
+
+    // Position nearby traffic cars for visual depth
+    if (trafficManager.vehicles.length >= 2) {
+      const v2 = trafficManager.vehicles[1];
+      v2.x = 136.5; // Opposite lane heading South
+      v2.z = -15;
+      v2.heading = 0;
+      v2.speed = 12.0;
+      v2.updateTransform();
+    }
+  } else {
+    // 2. Stage Street / On-Foot Shot: Kai Marlow walking down Coral Avenue
+    if (player.mode === 'driving') {
+      player.exitVehicle();
+    }
+
+    player.x = 148.5; // Sidewalk on Coral Avenue
+    player.y = 0;
+    player.z = 10;
+    player.heading = Math.PI * 0.92;
+    player.camYaw = Math.PI * 0.88;
+    player.camPitch = 0.18;
+    player.updateTransform();
+
+    // Position a parked luxury sports car nearby on the street
+    const parkedCar = trafficManager.vehicles[0];
+    if (parkedCar) {
+      parkedCar.x = 143.5;
+      parkedCar.z = 18;
+      parkedCar.heading = Math.PI;
+      parkedCar.speed = 0;
+      parkedCar.updateTransform();
+    }
+
+    // Position pedestrians walking nearby
+    if (pedestrianManager.pedestrians.length >= 2) {
+      const p1 = pedestrianManager.pedestrians[0];
+      p1.x = 148.2;
+      p1.z = 24;
+      p1.heading = 0;
+      p1.group.position.set(p1.x, 0.22, p1.z);
+
+      const p2 = pedestrianManager.pedestrians[1];
+      p2.x = 149.0;
+      p2.z = -6;
+      p2.heading = Math.PI;
+      p2.group.position.set(p2.x, 0.22, p2.z);
     }
   }
-  return Infinity;
-}
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
-    }
-  }
-  return best;
-}
-
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
-  }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
-  }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+  // Update camera and HUD immediately for the staged frame
+  player.updateCamera(0.016);
+  game.hud.update(player, trafficManager, pedestrianManager.pedestrians, trafficManager.vehicles);
 }
