@@ -1,6 +1,8 @@
 # SOLMARA — Sun, Streets & Second Chances
 
-[![make.fun gta6-01 bounty](https://img.shields.io/badge/make.fun-gta6-01%20bounty-ffbe53?style=flat-square)](https://make.fun/c/gta6-01)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/Rikki53/solmara/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/Rikki53/solmara/reward.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 **Solmara** is an original open-world crime game built from scratch for the **make.fun gta6-01 ("Make GTA 6")** bounty. Set in a sun-soaked fictional coastal city, you play as Kai Marlow, navigating the streets on foot or behind the wheel of stolen vehicles, evading the police wanted system, and progressing through an immersive 5-mission coastal crime story.
 
@@ -35,3 +37,7 @@ Captured live from actual in-game headless renders:
 
 ## License
 MIT License. See [LICENSE](LICENSE) for details.
+
+---
+
+<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
