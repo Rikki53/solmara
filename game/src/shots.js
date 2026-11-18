@@ -5,7 +5,7 @@ export function stageShot(name, game) {
   const { player, city, trafficManager, pedestrianManager, policeManager, missionManager, camera } = game;
 
   if (name === 'chase') {
-    // 1. Stage Police Chase Shot: wanted level 3, police car behind player
+    // 1. Stage Police Chase Shot: wanted level 3, police car directly behind player
     if (policeManager) {
       policeManager.setWantedLevel(3);
       policeManager.spawnPoliceCarNear(player.x, player.z);
@@ -33,19 +33,19 @@ export function stageShot(name, game) {
     player.camYaw = Math.PI * 0.98;
     player.camPitch = 0.2;
 
-    // Spawn police car directly behind player
+    // Spawn police car directly behind player in camera view
     if (policeManager && policeManager.policeCars.length > 0) {
       const cop = policeManager.policeCars[0];
       cop.x = 143.5;
-      cop.z = 38;
+      cop.z = 27;
       cop.heading = Math.PI;
       cop.speed = 36.0;
       cop.updateTransform();
     }
   } else if (name === 'mission') {
-    // 2. Stage Mission In Progress
+    // 2. Stage Mission In Progress (M2 Sunset Delivery at Dockside)
     if (missionManager) {
-      missionManager.startMission(0); // M1 First Wheels
+      missionManager.startMission(1);
     }
 
     let car = null;
@@ -56,16 +56,19 @@ export function stageShot(name, game) {
       }
     }
     if (!car) {
-      car = new Vehicle(game.scene, 'sport', 143.5, 20, Math.PI, 0xd32f2f);
+      car = new Vehicle(game.scene, 'sport', -70, -100, Math.PI * 0.5, 0x1e3a8a);
       trafficManager.vehicles.push(car);
     }
 
-    player.x = 148.5;
-    player.z = 15;
-    player.heading = Math.PI * 0.9;
-    player.camYaw = Math.PI * 0.85;
-    player.camPitch = 0.25;
-    player.updateTransform();
+    car.x = -70;
+    car.z = -100;
+    car.heading = Math.PI * 0.5;
+    car.speed = 26.0;
+    car.updateTransform();
+
+    player.enterVehicle(car);
+    player.camYaw = Math.PI * 1.15;
+    player.camPitch = 0.26;
   } else if (name === 'drive') {
     let car = null;
     for (const v of trafficManager.vehicles) {

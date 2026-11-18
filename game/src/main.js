@@ -52,6 +52,7 @@ export class Game {
 
     // Check if running in screenshot staging mode
     if (this.shotParam) {
+      this.hud.hideTitle();
       stageShot(this.shotParam, this);
     } else {
       this.hud.showTitle();
